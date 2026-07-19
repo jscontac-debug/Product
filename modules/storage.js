@@ -120,6 +120,7 @@ export function estructuraTiendaVacia() {
     tiempoDespues: 15,
     rotacion: 'semanal',
     maxHorasDia: 9,
+    duracionTurnoMin: 4,
     duracionTurnoMax: 6,
     maxTurnos: 2,
     maxDiasConsecutivos: 6,
