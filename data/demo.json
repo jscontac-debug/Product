@@ -1,0 +1,101 @@
+{
+  "tienda": {
+    "nombre": "Tienda Centro",
+    "convenio": "Comercio General 2024",
+    "horario": { "apertura": "09:00", "cierre": "21:00" },
+    "tiempoAntes": 15,
+    "tiempoDespues": 15,
+    "rotacion": "semanal",
+    "maxHorasDia": 9,
+    "maxTurnos": 2,
+    "maxDiasConsecutivos": 6,
+    "descansoMinimo": 12
+  },
+  "personal": [
+    {
+      "id": "emp_1",
+      "nombre": "Maria Lopez",
+      "contrato": "Indefinido",
+      "horasSemanales": 40,
+      "categoria": "Encargado",
+      "seccion": "General",
+      "disponibilidad": { "lunes": true, "martes": true, "miercoles": true, "jueves": true, "viernes": true, "sabado": true, "domingo": false },
+      "turnoFijo": "",
+      "vacaciones": [],
+      "preferencias": "Prefiere turno de mañana"
+    },
+    {
+      "id": "emp_2",
+      "nombre": "Juan Perez",
+      "contrato": "Indefinido",
+      "horasSemanales": 40,
+      "categoria": "Dependiente",
+      "seccion": "Caja",
+      "disponibilidad": { "lunes": true, "martes": true, "miercoles": true, "jueves": true, "viernes": true, "sabado": true, "domingo": true },
+      "turnoFijo": "",
+      "vacaciones": [],
+      "preferencias": ""
+    },
+    {
+      "id": "emp_3",
+      "nombre": "Ana Garcia",
+      "contrato": "Parcial",
+      "horasSemanales": 25,
+      "categoria": "Dependiente",
+      "seccion": "Reposicion",
+      "disponibilidad": { "lunes": true, "martes": true, "miercoles": false, "jueves": true, "viernes": true, "sabado": true, "domingo": false },
+      "turnoFijo": "tarde",
+      "vacaciones": [],
+      "preferencias": "No puede trabajar miercoles"
+    },
+    {
+      "id": "emp_4",
+      "nombre": "Carlos Ruiz",
+      "contrato": "Parcial",
+      "horasSemanales": 20,
+      "categoria": "Dependiente",
+      "seccion": "Caja",
+      "disponibilidad": { "lunes": false, "martes": true, "miercoles": true, "jueves": true, "viernes": true, "sabado": true, "domingo": true },
+      "turnoFijo": "",
+      "vacaciones": [],
+      "preferencias": ""
+    },
+    {
+      "id": "emp_5",
+      "nombre": "Lucia Martin",
+      "contrato": "Indefinido",
+      "horasSemanales": 35,
+      "categoria": "Dependiente",
+      "seccion": "General",
+      "disponibilidad": { "lunes": true, "martes": true, "miercoles": true, "jueves": true, "viernes": true, "sabado": false, "domingo": false },
+      "turnoFijo": "",
+      "vacaciones": [],
+      "preferencias": "Fin de semana libre"
+    }
+  ],
+  "cobertura": [
+    { "id": "cov_1", "dias": ["lunes", "martes", "miercoles", "jueves", "viernes"], "horaInicio": "09:00", "horaFin": "13:00", "personalDeseado": 2, "personalMinimo": 1 },
+    { "id": "cov_2", "dias": ["lunes", "martes", "miercoles", "jueves", "viernes"], "horaInicio": "13:00", "horaFin": "17:00", "personalDeseado": 2, "personalMinimo": 1 },
+    { "id": "cov_3", "dias": ["lunes", "martes", "miercoles", "jueves", "viernes"], "horaInicio": "17:00", "horaFin": "21:00", "personalDeseado": 3, "personalMinimo": 2 },
+    { "id": "cov_4", "dias": ["sabado"], "horaInicio": "09:00", "horaFin": "21:00", "personalDeseado": 3, "personalMinimo": 2 },
+    { "id": "cov_5", "dias": ["lunes", "martes", "miercoles", "jueves", "viernes"], "horaInicio": "20:00", "horaFin": "21:00", "personalDeseado": 3, "personalMinimo": 3 }
+  ],
+  "operaciones": [
+    { "id": "op_1", "nombre": "Recepcion camion", "dia": "lunes", "hora": "09:00", "duracion": 90, "personasNecesarias": 2, "prioridad": "Alta", "seccion": "Reposicion" },
+    { "id": "op_2", "nombre": "Reposicion", "dia": "martes", "hora": "09:00", "duracion": 120, "personasNecesarias": 2, "prioridad": "Media", "seccion": "Reposicion" },
+    { "id": "op_3", "nombre": "Inventario", "dia": "domingo", "hora": "10:00", "duracion": 180, "personasNecesarias": 3, "prioridad": "Alta", "seccion": "General" },
+    { "id": "op_4", "nombre": "Limpieza", "dia": "sabado", "hora": "20:00", "duracion": 60, "personasNecesarias": 1, "prioridad": "Baja", "seccion": "General" },
+    { "id": "op_5", "nombre": "Cambio de precios", "dia": "miercoles", "hora": "10:00", "duracion": 60, "personasNecesarias": 1, "prioridad": "Media", "seccion": "General" }
+  ],
+  "reglas": [
+    { "id": "convenio", "nombre": "Cumplir convenio", "prioridad": 1, "activa": true, "peso": 1000 },
+    { "id": "minimos", "nombre": "Cubrir minimos criticos", "prioridad": 2, "activa": true, "peso": 500 },
+    { "id": "operaciones", "nombre": "Cubrir operaciones", "prioridad": 3, "activa": true, "peso": 250 },
+    { "id": "aperturas", "nombre": "Equilibrar aperturas", "prioridad": 4, "activa": true, "peso": 60 },
+    { "id": "cierres", "nombre": "Equilibrar cierres", "prioridad": 5, "activa": true, "peso": 55 },
+    { "id": "domingos", "nombre": "Equilibrar domingos", "prioridad": 6, "activa": true, "peso": 50 },
+    { "id": "horasSobrantes", "nombre": "Reducir horas sobrantes", "prioridad": 7, "activa": true, "peso": 30 },
+    { "id": "coste", "nombre": "Reducir coste", "prioridad": 8, "activa": true, "peso": 20 },
+    { "id": "productividad", "nombre": "Mejorar productividad", "prioridad": 9, "activa": true, "peso": 10 }
+  ]
+}
