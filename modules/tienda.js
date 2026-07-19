@@ -71,6 +71,10 @@ export async function render(container) {
             <input id="ti-maxhoras" name="maxHorasDia" type="number" min="1" max="24" step="0.5" value="${tienda.maxHorasDia}">
           </div>
           <div class="field">
+            <label for="ti-duracionturno">Duracion maxima de un turno (h)</label>
+            <input id="ti-duracionturno" name="duracionTurnoMax" type="number" min="1" max="14" step="0.5" value="${tienda.duracionTurnoMax || 6}">
+          </div>
+          <div class="field">
             <label for="ti-maxturnos">Maximo turnos / dia</label>
             <input id="ti-maxturnos" name="maxTurnos" type="number" min="1" max="4" value="${tienda.maxTurnos}">
           </div>
@@ -83,6 +87,15 @@ export async function render(container) {
             <input id="ti-descanso" name="descansoMinimo" type="number" min="0" max="48" value="${tienda.descansoMinimo}">
           </div>
         </div>
+        <p class="muted" style="margin-top:6px;">Si la rotacion es semanal, un empleado que empiece la semana por la manana se mantendra en turnos de manana el resto de esa semana (y lo mismo para tarde).</p>
+
+        <hr class="sep">
+        <h3>Coste de personal</h3>
+        <div class="field-inline">
+          <input id="ti-coste" name="costeHabilitado" type="checkbox" ${tienda.costeHabilitado !== false ? 'checked' : ''}>
+          <label for="ti-coste" style="font-size:0.9rem; font-weight:500;">Tener en cuenta el coste del personal (regla de coste e informes)</label>
+        </div>
+        <p class="muted" style="margin-top:6px;">El coste por hora se configura por empleado en la pantalla "Personal".</p>
 
         <div class="actions-row">
           <button type="submit" class="btn">Guardar cambios</button>
@@ -117,9 +130,11 @@ function guardarFormulario(form) {
     tiempoDespues: Number(datos.get('tiempoDespues')) || 0,
     rotacion: datos.get('rotacion'),
     maxHorasDia: Number(datos.get('maxHorasDia')) || 8,
+    duracionTurnoMax: Number(datos.get('duracionTurnoMax')) || 6,
     maxTurnos: Number(datos.get('maxTurnos')) || 1,
     maxDiasConsecutivos: Number(datos.get('maxDiasConsecutivos')) || 6,
-    descansoMinimo: Number(datos.get('descansoMinimo')) || 12
+    descansoMinimo: Number(datos.get('descansoMinimo')) || 12,
+    costeHabilitado: form.querySelector('[name="costeHabilitado"]').checked
   };
 
   guardar(KEYS.TIENDA, tienda);

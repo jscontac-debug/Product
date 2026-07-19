@@ -18,13 +18,21 @@
  *          productividad) -> funciones de puntuacion que desempatan
  *          entre candidatos igualmente elegibles.
  *
+ * El motor genera el cuadrante para el PLAZO DE TIEMPO que indique la
+ * persona usuaria (una o varias semanas seguidas), calculando cada
+ * semana de forma independiente y guardando el resultado en un unico
+ * contenedor indexado por la fecha de inicio de cada semana.
+ *
  * Este archivo expone dos pantallas: "Generar" (render) y "Resultado"
  * (renderResultado), reutilizando el mismo modulo porque comparten el
  * mismo dominio de datos (el cuadrante).
  * -----------------------------------------------------------------------
  */
 
-import { leer, guardar, KEYS, DIAS, DIAS_LABEL } from './storage.js';
+import {
+  leer, guardar, KEYS, DIAS, DIAS_LABEL,
+  sumarDiasFecha, lunesDeSemana, numeroSemanaISO, formatoFechaCorta
+} from './storage.js';
 
 const BLOQUE_MIN = 30; // resolucion temporal del motor, en minutos
 
@@ -60,8 +68,9 @@ const REGISTRO_REGLAS = {
   },
 
   coste(empleado, estado, ctx, peso) {
-    // Coste relativo aproximado segun categoria (usado tambien en Informes).
-    return -peso * costeHoraPorCategoria(empleado.categoria);
+    // El coste es una opcion: si la tienda lo tiene desactivado, la regla no puntua.
+    if (!ctx.costeHabilitado) return 0;
+    return -peso * costeHoraEmpleado(empleado);
   },
 
   productividad(empleado, estado, ctx, peso) {
@@ -71,26 +80,55 @@ const REGISTRO_REGLAS = {
   }
 };
 
-/** Coste horario relativo aproximado por categoria, para las reglas de coste e informes. */
+/** Coste horario relativo aproximado por categoria (se usa solo si el empleado no tiene coste propio). */
 export function costeHoraPorCategoria(categoria) {
   const tabla = { 'Encargado': 14, 'Responsable': 13, 'Dependiente': 10.5, 'Auxiliar': 9.5 };
   return tabla[categoria] || 10;
 }
 
+/** Coste horario real de un empleado: usa su coste individual si esta definido, si no la tabla por categoria. */
+export function costeHoraEmpleado(empleado) {
+  if (empleado.costeHora && empleado.costeHora > 0) return empleado.costeHora;
+  return costeHoraPorCategoria(empleado.categoria);
+}
+
 /* =========================================================================
-   GENERACION DEL CUADRANTE
+   GENERACION DEL CUADRANTE (multi-semana)
    ========================================================================= */
 
 /**
- * Genera un cuadrante semanal completo.
+ * Genera el cuadrante para el plazo de tiempo indicado (una o varias
+ * semanas consecutivas a partir de un lunes) y lo guarda en LocalStorage.
  * @param {object} tienda configuracion de tienda
  * @param {array} personal lista de empleados
  * @param {array} cobertura franjas de cobertura
  * @param {array} operaciones operaciones puntuales
  * @param {array} reglas configuracion de reglas (peso/activa)
- * @param {string} semanaInicio fecha ISO (lunes) de la semana a generar
+ * @param {string} fechaInicio fecha ISO (se ajusta al lunes de esa semana)
+ * @param {number} numSemanas numero de semanas consecutivas a generar
  */
-export function generarCuadrante(tienda, personal, cobertura, operaciones, reglas, semanaInicio) {
+export function generarCuadrante(tienda, personal, cobertura, operaciones, reglas, fechaInicio, numSemanas = 1) {
+  const inicio = lunesDeSemana(fechaInicio);
+  const semanas = {};
+
+  for (let i = 0; i < Math.max(1, numSemanas); i++) {
+    const semanaInicio = sumarDiasFecha(inicio, i * 7);
+    semanas[semanaInicio] = generarSemana(tienda, personal, cobertura, operaciones, reglas, semanaInicio);
+  }
+
+  const contenedor = {
+    generadoEl: new Date().toISOString(),
+    fechaInicio: inicio,
+    numSemanas: Math.max(1, numSemanas),
+    semanas
+  };
+
+  guardar(KEYS.CUADRANTE, contenedor);
+  return contenedor;
+}
+
+/** Genera el cuadrante de UNA sola semana (funcion interna, no persiste por si sola). */
+function generarSemana(tienda, personal, cobertura, operaciones, reglas, semanaInicio) {
   const reglasActivas = {};
   reglas.forEach(r => { reglasActivas[r.id] = r.activa ? r.peso : 0; });
 
@@ -99,7 +137,7 @@ export function generarCuadrante(tienda, personal, cobertura, operaciones, regla
   const dias = {};
 
   DIAS.forEach((dia, indiceDia) => {
-    const fechaDia = sumarDias(semanaInicio, indiceDia);
+    const fechaDia = sumarDiasFecha(semanaInicio, indiceDia);
     const demanda = construirDemandaDia(dia, cobertura, jornada);
 
     dias[dia] = [];
@@ -118,15 +156,11 @@ export function generarCuadrante(tienda, personal, cobertura, operaciones, regla
     });
   });
 
-  const cuadrante = {
-    generadoEl: new Date().toISOString(),
+  return {
     semanaInicio,
     dias,
     resumenEmpleado: construirResumenEmpleado(personal, estado)
   };
-
-  guardar(KEYS.CUADRANTE, cuadrante);
-  return cuadrante;
 }
 
 /** Convierte la prioridad textual de una operacion en un numero para ordenar. */
@@ -142,7 +176,12 @@ function calcularVentanaJornada(tienda) {
   return { inicio, fin, numBloques };
 }
 
-/** Inicializa el estado acumulado (horas, turnos...) de cada empleado. */
+/** Clasifica un turno como "manana" o "tarde" segun su hora de inicio (usado para turno fijo y rotacion semanal). */
+function clasificarTurno(inicioMin) {
+  return inicioMin < window.UI.horaAMinutos('14:00') ? 'manana' : 'tarde';
+}
+
+/** Inicializa el estado acumulado (horas, turnos...) de cada empleado para UNA semana. */
 function inicializarEstado(personal) {
   const estado = {};
   personal.forEach(e => {
@@ -153,7 +192,9 @@ function inicializarEstado(personal) {
       cierres: 0,
       domingos: 0,
       consecutivos: 0,
-      ultimoDiaIdx: -99
+      ultimoDiaIdx: -99,
+      totalTurnos: 0,           // turnos asignados en toda la semana (para la regla de rotacion semanal)
+      turnoSemanaTipo: null     // 'manana' | 'tarde', fijado por el primer turno de la semana
     };
     DIAS.forEach(d => { estado[e.id].turnos[d] = []; });
   });
@@ -212,7 +253,11 @@ function asignarCobertura(turnosDia, demanda, objetivo, dia, indiceDia, fechaDia
 
 /** Determina cuantos bloques debe durar un turno que arranca en un indice dado. */
 function calcularLongitudTurno(demanda, objetivo, idxInicio, jornada, tienda) {
-  const maxBloques = Math.round((tienda.maxHorasDia * 60) / BLOQUE_MIN);
+  // La duracion de un turno individual esta acotada por la "duracion maxima de turno"
+  // configurada en Tienda (por ejemplo, 6 horas), no por el maximo de horas del dia
+  // (que solo se alcanza combinando varios turnos si el convenio lo permite).
+  const duracionTurnoMax = tienda.duracionTurnoMax || tienda.maxHorasDia || 6;
+  const maxBloques = Math.round((duracionTurnoMax * 60) / BLOQUE_MIN);
   const minBloques = Math.min(maxBloques, Math.round(4 * 60 / BLOQUE_MIN)); // turno minimo orientativo: 4h
   let fin = idxInicio;
 
@@ -239,12 +284,13 @@ function elegirMejorCandidato(empleados, estado, dia, indiceDia, fechaDia, idxIn
   let mejorPuntuacion = -Infinity;
 
   empleados.forEach(emp => {
-    if (seccionRequerida && emp.seccion !== seccionRequerida) {
-      // No descalifica totalmente: se permite pero se penaliza en productividad.
-    }
     if (!esElegible(emp, estado[emp.id], dia, indiceDia, fechaDia, inicioMin, finMin, tienda)) return;
 
-    const ctx = { dia, esApertura, esCierre, seccion: seccionRequerida };
+    const ctx = {
+      dia, esApertura, esCierre,
+      seccion: seccionRequerida,
+      costeHabilitado: tienda.costeHabilitado !== false
+    };
     let puntuacion = 0;
     Object.keys(REGISTRO_REGLAS).forEach(idRegla => {
       const peso = reglasActivas[idRegla] || 0;
@@ -264,10 +310,14 @@ function esElegible(empleado, est, dia, indiceDia, fechaDia, inicioMin, finMin, 
   if (empleado.vacaciones && empleado.vacaciones.includes(fechaDia)) return false;
 
   const horas = (finMin - inicioMin) / 60;
-  if (horas > tienda.maxHorasDia + 0.001) return false;
-  if (est.horasAsignadas + horas > empleado.horasSemanales + 0.001) return false;
+  const duracionTurnoMax = tienda.duracionTurnoMax || tienda.maxHorasDia || 6;
+  if (horas > duracionTurnoMax + 0.001) return false;
 
   const turnosHoy = est.turnos[dia];
+  const horasYaHoy = turnosHoy.reduce((acc, t) => acc + (t.finMin - t.inicioMin) / 60, 0);
+  if (horasYaHoy + horas > tienda.maxHorasDia + 0.001) return false;
+  if (est.horasAsignadas + horas > empleado.horasSemanales + 0.001) return false;
+
   if (turnosHoy.length >= tienda.maxTurnos) return false;
 
   // Descanso minimo respecto a otros turnos del mismo dia (turnos partidos).
@@ -286,8 +336,14 @@ function esElegible(empleado, est, dia, indiceDia, fechaDia, inicioMin, finMin, 
   }
 
   // Turno fijo: si el empleado tiene manana/tarde fijo, respetarlo de forma orientativa.
-  if (empleado.turnoFijo === 'manana' && inicioMin >= window.UI.horaAMinutos('14:00')) return false;
-  if (empleado.turnoFijo === 'tarde' && inicioMin < window.UI.horaAMinutos('14:00')) return false;
+  if (empleado.turnoFijo === 'manana' && clasificarTurno(inicioMin) !== 'manana') return false;
+  if (empleado.turnoFijo === 'tarde' && clasificarTurno(inicioMin) !== 'tarde') return false;
+
+  // Rotacion semanal: si el empleado ya empezo la semana en un tipo de turno
+  // (manana o tarde), se mantiene en ese mismo tipo el resto de la semana.
+  if (tienda.rotacion === 'semanal' && est.turnoSemanaTipo && clasificarTurno(inicioMin) !== est.turnoSemanaTipo) {
+    return false;
+  }
 
   return true;
 }
@@ -313,6 +369,12 @@ function aplicarTurno(turnosDia, demanda, empleado, estado, dia, indiceDia, jorn
   }
   if (idxInicio === 0 && tipo === 'cobertura') est.aperturas++;
   if ((idxInicio + longitud) >= jornada.numBloques && tipo === 'cobertura') est.cierres++;
+
+  // El primer turno de toda la semana fija el tipo (manana/tarde) para la rotacion semanal.
+  if (tienda.rotacion === 'semanal' && est.totalTurnos === 0) {
+    est.turnoSemanaTipo = clasificarTurno(inicioMin);
+  }
+  est.totalTurnos++;
 
   turnosDia.push({
     empleadoId: empleado.id,
@@ -345,7 +407,7 @@ function asignarOperacion(turnosDia, operacion, dia, indiceDia, fechaDia, tienda
   });
 
   // 2) Si falta personal, crear turnos adicionales dedicados a la operacion.
-  const jornadaOperacion = { inicio: inicioMin, fin: finMin, numBloques: Math.ceil((finMin - inicioMin) / BLOQUE_MIN), tienda };
+  const jornadaOperacion = { inicio: inicioMin, fin: finMin, numBloques: Math.ceil((finMin - inicioMin) / BLOQUE_MIN) };
   const idxInicio = 0;
   const longitud = jornadaOperacion.numBloques || 1;
 
@@ -357,7 +419,7 @@ function asignarOperacion(turnosDia, operacion, dia, indiceDia, fechaDia, tienda
   }
 }
 
-/** Construye el resumen final de horas y equilibrios por empleado. */
+/** Construye el resumen final de horas y equilibrios por empleado de una semana. */
 function construirResumenEmpleado(personal, estado) {
   const resumen = {};
   personal.forEach(e => {
@@ -372,14 +434,6 @@ function construirResumenEmpleado(personal, estado) {
     };
   });
   return resumen;
-}
-
-/** Suma dias a una fecha ISO (yyyy-mm-dd) y devuelve otra fecha ISO. */
-function sumarDias(fechaIso, dias) {
-  if (!fechaIso) return '';
-  const d = new Date(fechaIso + 'T00:00:00');
-  d.setDate(d.getDate() + dias);
-  return d.toISOString().slice(0, 10);
 }
 
 /* =========================================================================
@@ -399,7 +453,7 @@ export async function render(container) {
   if (!personal.length) problemas.push('Da de alta al menos un empleado en Personal.');
   if (!cobertura.length) problemas.push('Define al menos una franja en Cobertura.');
 
-  const lunesSugerido = proximoLunes();
+  const lunesSugerido = lunesDeSemana(new Date().toISOString().slice(0, 10));
 
   container.innerHTML = `
     <div class="screen">
@@ -420,13 +474,18 @@ export async function render(container) {
       ` : ''}
 
       <div class="card">
-        <h3>Semana a generar</h3>
+        <h3>Plazo de tiempo a generar</h3>
         <div class="form-grid">
           <div class="field">
-            <label for="gen-semana">Lunes de la semana</label>
+            <label for="gen-semana">Lunes de la primera semana</label>
             <input id="gen-semana" type="date" value="${lunesSugerido}">
           </div>
+          <div class="field">
+            <label for="gen-numsemanas">Numero de semanas</label>
+            <input id="gen-numsemanas" type="number" min="1" max="26" value="1">
+          </div>
         </div>
+        <p class="muted" style="margin-top:6px;">Si la fecha elegida no es un lunes, se ajustara automaticamente al lunes de esa semana.</p>
         <div class="actions-row">
           <button id="btn-generar" class="btn" ${problemas.length ? 'disabled' : ''}>Generar cuadrante</button>
           ${cuadrante ? '<button id="btn-ver-resultado" class="btn btn--secondary">Ver ultimo resultado</button>' : ''}
@@ -447,14 +506,15 @@ export async function render(container) {
   `;
 
   document.getElementById('btn-generar').addEventListener('click', () => {
-    const semanaInicio = document.getElementById('gen-semana').value || lunesSugerido;
+    const fechaInicio = document.getElementById('gen-semana').value || lunesSugerido;
+    const numSemanas = Math.max(1, Number(document.getElementById('gen-numsemanas').value) || 1);
     const estadoTexto = document.getElementById('gen-estado');
     estadoTexto.textContent = 'Calculando...';
     // Se difiere un instante para que el navegador pinte el mensaje antes del calculo.
     setTimeout(() => {
       try {
-        generarCuadrante(tienda, personal, cobertura, operaciones, reglas, semanaInicio);
-        window.UI.toast('Cuadrante generado correctamente.');
+        generarCuadrante(tienda, personal, cobertura, operaciones, reglas, fechaInicio, numSemanas);
+        window.UI.toast(numSemanas > 1 ? `Cuadrante generado para ${numSemanas} semanas.` : 'Cuadrante generado correctamente.');
         window.irA('resultado');
       } catch (err) {
         console.error(err);
@@ -467,26 +527,19 @@ export async function render(container) {
   if (btnVer) btnVer.addEventListener('click', () => window.irA('resultado'));
 }
 
-/** Devuelve el lunes de la semana actual (o el proximo si hoy es domingo) en formato ISO. */
-function proximoLunes() {
-  const hoy = new Date();
-  const diaSemana = hoy.getDay(); // 0 domingo .. 6 sabado
-  const offsetHastaLunes = diaSemana === 0 ? 1 : (1 - diaSemana);
-  const lunes = new Date(hoy);
-  lunes.setDate(hoy.getDate() + offsetHastaLunes);
-  return lunes.toISOString().slice(0, 10);
-}
-
 /* =========================================================================
    PANTALLA "RESULTADO"
+   Cuadrante semana a semana, en forma de rejilla por bloques de 30 min,
+   con navegacion entre semanas, boton de impresion y vistas adicionales.
    ========================================================================= */
 
-let vistaActual = 'semanal';
+let vistaActual = 'cuadrante';
+let semanaSeleccionada = null;
 
 export async function renderResultado(container) {
-  const cuadrante = leer(KEYS.CUADRANTE);
+  const contenedor = leer(KEYS.CUADRANTE);
 
-  if (!cuadrante) {
+  if (!contenedor || !contenedor.semanas || !Object.keys(contenedor.semanas).length) {
     container.innerHTML = `
       <div class="screen">
         <div class="card">
@@ -500,123 +553,295 @@ export async function renderResultado(container) {
     return;
   }
 
+  const tienda = leer(KEYS.TIENDA);
+  const cobertura = leer(KEYS.COBERTURA, []);
   const personal = leer(KEYS.PERSONAL, []);
+  const semanasKeys = Object.keys(contenedor.semanas).sort();
+
+  if (!semanaSeleccionada || !contenedor.semanas[semanaSeleccionada]) {
+    semanaSeleccionada = semanasKeys[0];
+  }
 
   container.innerHTML = `
     <div class="screen">
-      <div class="screen-header">
+      <div class="screen-header no-print">
         <div>
           <h1>Resultado</h1>
-          <p>Cuadrante generado el ${new Date(cuadrante.generadoEl).toLocaleString('es-ES')} · Semana del ${cuadrante.semanaInicio || '-'}</p>
+          <p>Cuadrante generado el ${new Date(contenedor.generadoEl).toLocaleString('es-ES')} · ${contenedor.numSemanas} semana(s)</p>
         </div>
+        <button id="btn-imprimir" class="btn btn--secondary">🖨️ Imprimir</button>
       </div>
 
-      <div class="tabs">
-        <button class="tab-btn" data-vista="semanal">Vista semanal</button>
-        <button class="tab-btn" data-vista="mensual">Vista mensual</button>
-        <button class="tab-btn" data-vista="empleado">Vista por empleado</button>
-        <button class="tab-btn" data-vista="dia">Vista por dia</button>
+      <div class="tabs no-print">
+        <button class="tab-btn" data-vista="cuadrante">Cuadrante semanal</button>
+        <button class="tab-btn" data-vista="periodo">Resumen del periodo</button>
+        <button class="tab-btn" data-vista="empleado">Por empleado</button>
       </div>
 
       <div id="vista-contenido"></div>
     </div>
   `;
 
+  document.getElementById('btn-imprimir').addEventListener('click', () => window.print());
+
   container.querySelectorAll('.tab-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.vista === vistaActual);
     b.addEventListener('click', () => {
       vistaActual = b.dataset.vista;
       container.querySelectorAll('.tab-btn').forEach(x => x.classList.toggle('active', x === b));
-      pintarVista(document.getElementById('vista-contenido'), cuadrante, personal);
+      pintarVista(document.getElementById('vista-contenido'), contenedor, semanasKeys, tienda, cobertura, personal);
     });
   });
 
-  pintarVista(document.getElementById('vista-contenido'), cuadrante, personal);
+  pintarVista(document.getElementById('vista-contenido'), contenedor, semanasKeys, tienda, cobertura, personal);
 }
 
-function pintarVista(el, cuadrante, personal) {
-  if (vistaActual === 'semanal') return pintarVistaSemanal(el, cuadrante);
-  if (vistaActual === 'mensual') return pintarVistaMensual(el, cuadrante, personal);
-  if (vistaActual === 'empleado') return pintarVistaEmpleado(el, cuadrante, personal);
-  if (vistaActual === 'dia') return pintarVistaDia(el, cuadrante);
+function pintarVista(el, contenedor, semanasKeys, tienda, cobertura, personal) {
+  if (vistaActual === 'cuadrante') return pintarVistaCuadrante(el, contenedor, semanasKeys, tienda, cobertura);
+  if (vistaActual === 'periodo') return pintarVistaPeriodo(el, contenedor, semanasKeys, tienda, personal);
+  if (vistaActual === 'empleado') return pintarVistaEmpleado(el, contenedor, semanasKeys, personal);
 }
 
-function pintarVistaSemanal(el, cuadrante) {
+/* ---------- Vista "Cuadrante semanal" (rejilla por bloques de 30 min) ---------- */
+
+function pintarVistaCuadrante(el, contenedor, semanasKeys, tienda, cobertura) {
+  const semana = contenedor.semanas[semanaSeleccionada];
+  const jornada = calcularVentanaJornada(tienda);
+  const { anio, semana: numISO } = numeroSemanaISO(semanaSeleccionada);
+  const fechaFin = sumarDiasFecha(semanaSeleccionada, 6);
+  const idx = semanasKeys.indexOf(semanaSeleccionada);
+
   el.innerHTML = `
-    <div class="card">
+    <div class="card semana-nav no-print">
+      <button id="btn-semana-anterior" class="btn btn--secondary" ${idx <= 0 ? 'disabled' : ''}>&#9664; Semana anterior</button>
+      <div class="semana-nav__titulo">
+        <strong>Semana ${numISO} · ${anio}</strong>
+        <span class="muted">${formatoFechaCorta(semanaSeleccionada)} a ${formatoFechaCorta(fechaFin)}</span>
+      </div>
+      <select id="sel-semana">
+        ${semanasKeys.map(k => {
+          const w = numeroSemanaISO(k);
+          return `<option value="${k}" ${k === semanaSeleccionada ? 'selected' : ''}>${w.anio}-${String(w.semana).padStart(2, '0')}</option>`;
+        }).join('')}
+      </select>
+      <button id="btn-semana-siguiente" class="btn btn--secondary" ${idx >= semanasKeys.length - 1 ? 'disabled' : ''}>Semana siguiente &#9654;</button>
+    </div>
+
+    <div id="dias-semana">
+      ${DIAS.map((dia, indiceDia) => renderDiaGrid(dia, indiceDia, semana, jornada, cobertura)).join('')}
+    </div>
+  `;
+
+  const irASemana = (nuevaClave) => {
+    semanaSeleccionada = nuevaClave;
+    pintarVistaCuadrante(el, contenedor, semanasKeys, tienda, cobertura);
+  };
+
+  document.getElementById('btn-semana-anterior').addEventListener('click', () => {
+    if (idx > 0) irASemana(semanasKeys[idx - 1]);
+  });
+  document.getElementById('btn-semana-siguiente').addEventListener('click', () => {
+    if (idx < semanasKeys.length - 1) irASemana(semanasKeys[idx + 1]);
+  });
+  document.getElementById('sel-semana').addEventListener('change', (ev) => irASemana(ev.target.value));
+}
+
+/** Pinta la rejilla de un dia: filas de empleados x columnas de bloques de 30 minutos. */
+function renderDiaGrid(dia, indiceDia, semana, jornada, cobertura) {
+  const turnosDia = semana.dias[dia] || [];
+  const fechaDia = sumarDiasFecha(semana.semanaInicio, indiceDia);
+  const demanda = construirDemandaDia(dia, cobertura, jornada);
+
+  // Empleados que trabajan ese dia, ordenados por hora de inicio.
+  const empleadosDia = [...new Set(turnosDia.map(t => t.empleadoId))]
+    .map(id => turnosDia.find(t => t.empleadoId === id))
+    .sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
+
+  const bloques = [];
+  for (let i = 0; i < jornada.numBloques; i++) bloques.push(jornada.inicio + i * BLOQUE_MIN);
+
+  const cabecera = bloques.map(min => {
+    const finBloque = window.UI.minutosAHora(min + BLOQUE_MIN);
+    return `<th>${window.UI.minutosAHora(min)}<br>${finBloque}</th>`;
+  }).join('');
+
+  const filasEmpleados = empleadosDia.map(ref => {
+    const turnosEmpleado = turnosDia.filter(t => t.empleadoId === ref.empleadoId);
+    const horasDia = turnosEmpleado.reduce((acc, t) => acc + (window.UI.horaAMinutos(t.horaFin) - window.UI.horaAMinutos(t.horaInicio)) / 60, 0);
+    const celdas = bloques.map(min => {
+      const enBloque = turnosEmpleado.find(t => window.UI.horaAMinutos(t.horaInicio) <= min && window.UI.horaAMinutos(t.horaFin) > min);
+      if (!enBloque) return '<td></td>';
+      const claseOp = enBloque.tipo === 'operacion' || enBloque.operacionId ? ' celda-op' : '';
+      const titulo = enBloque.operacionNombre ? ` title="${esc(enBloque.operacionNombre)}"` : '';
+      return `<td class="celda-turno${claseOp}"${titulo}>1</td>`;
+    }).join('');
+    return `<tr><td class="col-empleado">${esc(ref.nombre)}</td>${celdas}<td class="col-horas">${horasDia.toFixed(2)}</td></tr>`;
+  }).join('');
+
+  const totales = bloques.map((min, i) => {
+    const asignado = demanda.asignado[i];
+    const minimo = demanda.minimo[i];
+    const deseado = demanda.deseado[i];
+    let clase = 'total-ok';
+    if (asignado < minimo) clase = 'total-bad';
+    else if (asignado < deseado) clase = 'total-warn';
+    return { asignado, minimo, deseado, clase };
+  });
+
+  const horasAsignadasDia = empleadosDia.reduce((acc, ref) => {
+    const turnosEmpleado = turnosDia.filter(t => t.empleadoId === ref.empleadoId);
+    return acc + turnosEmpleado.reduce((a, t) => a + (window.UI.horaAMinutos(t.horaFin) - window.UI.horaAMinutos(t.horaInicio)) / 60, 0);
+  }, 0);
+  const maxSimultaneo = totales.length ? Math.max(...totales.map(t => t.asignado)) : 0;
+  const minSimultaneo = totales.length ? Math.min(...totales.map(t => t.asignado)) : 0;
+  const franjasDeficit = totales.filter(t => t.asignado < t.minimo).length;
+
+  return `
+    <div class="card dia-grid-card">
+      <div class="dia-grid-card__header">
+        <h3>${DIAS_LABEL[dia]}</h3>
+        <span class="muted">${formatoFechaCorta(fechaDia)}</span>
+      </div>
       <div class="table-wrap">
-        <table class="cuadrante-table">
-          <thead><tr>${DIAS.map(d => `<th>${DIAS_LABEL[d]}</th>`).join('')}</tr></thead>
+        <table class="grid-turnos">
+          <thead><tr><th class="col-empleado">Empleado/a</th>${cabecera}<th class="col-horas">Horas</th></tr></thead>
           <tbody>
-            <tr>
-              ${DIAS.map(d => `<td class="turno-cell">${renderChipsDia(cuadrante.dias[d])}</td>`).join('')}
+            ${filasEmpleados || `<tr class="empty-row"><td colspan="${bloques.length + 2}">Sin personal asignado este dia.</td></tr>`}
+            <tr class="fila-total">
+              <td class="col-empleado">TOTAL ASIGNADO</td>
+              ${totales.map(t => `<td class="${t.clase}">${t.asignado}</td>`).join('')}
+              <td class="col-horas">${horasAsignadasDia.toFixed(2)}</td>
+            </tr>
+            <tr class="fila-referencia">
+              <td class="col-empleado">COBERTURA DESEADA</td>
+              ${totales.map(t => `<td>${t.deseado}</td>`).join('')}
+              <td>—</td>
+            </tr>
+            <tr class="fila-referencia">
+              <td class="col-empleado">MINIMO CRITICO</td>
+              ${totales.map(t => `<td>${t.minimo}</td>`).join('')}
+              <td>—</td>
             </tr>
           </tbody>
         </table>
       </div>
+      <div class="grid grid-4" style="margin-top:12px;">
+        <div class="stat"><div class="stat__value">${horasAsignadasDia.toFixed(2)}</div><div class="stat__label">Horas asignadas</div></div>
+        <div class="stat"><div class="stat__value">${maxSimultaneo}</div><div class="stat__label">Maximo simultaneo</div></div>
+        <div class="stat"><div class="stat__value">${minSimultaneo}</div><div class="stat__label">Minimo simultaneo</div></div>
+        <div class="stat ${franjasDeficit ? 'stat--bad' : 'stat--ok'}"><div class="stat__value">${franjasDeficit}</div><div class="stat__label">Franjas con deficit</div></div>
+      </div>
     </div>
   `;
 }
 
-function renderChipsDia(turnos) {
-  if (!turnos || !turnos.length) return '<span class="muted">Sin turnos</span>';
-  return turnos
-    .slice()
-    .sort((a, b) => a.horaInicio.localeCompare(b.horaInicio))
-    .map(t => `
-      <span class="turno-chip ${t.tipo === 'operacion' ? 'turno-op' : ''}">
-        ${esc(t.nombre)}<br>${t.horaInicio}-${t.horaFin}${t.operacionNombre ? ' · ' + esc(t.operacionNombre) : ''}
-      </span>
-    `).join('');
-}
+/* ---------- Vista "Resumen del periodo" (agregado real de todas las semanas generadas) ---------- */
 
-function pintarVistaMensual(el, cuadrante, personal) {
-  // Estimacion mensual: se repite el patron semanal generado x4 (rotacion semanal).
-  const filas = personal.map(p => {
-    const r = cuadrante.resumenEmpleado[p.id] || { horas: 0 };
-    return `<tr><td>${esc(p.nombre)}</td><td>${window.UI.formatoHoras(r.horas)}</td><td>${window.UI.formatoHoras(r.horas * 4)}</td></tr>`;
-  }).join('');
+function pintarVistaPeriodo(el, contenedor, semanasKeys, tienda, personal) {
+  const costeHabilitado = tienda.costeHabilitado !== false;
+  const totalesPorEmpleado = {};
+  personal.forEach(p => { totalesPorEmpleado[p.id] = { nombre: p.nombre, horas: 0, coste: 0, aperturas: 0, cierres: 0, domingos: 0 }; });
+
+  let horasTotales = 0;
+  let costeTotalPeriodo = 0;
+
+  semanasKeys.forEach(k => {
+    const semana = contenedor.semanas[k];
+    Object.entries(semana.resumenEmpleado).forEach(([id, r]) => {
+      if (!totalesPorEmpleado[id]) totalesPorEmpleado[id] = { nombre: r.nombre, horas: 0, coste: 0, aperturas: 0, cierres: 0, domingos: 0 };
+      totalesPorEmpleado[id].horas += r.horas;
+      totalesPorEmpleado[id].aperturas += r.aperturas;
+      totalesPorEmpleado[id].cierres += r.cierres;
+      totalesPorEmpleado[id].domingos += r.domingos;
+      horasTotales += r.horas;
+    });
+  });
+
+  personal.forEach(p => {
+    const t = totalesPorEmpleado[p.id];
+    if (!t) return;
+    t.coste = t.horas * costeHoraEmpleado(p);
+    costeTotalPeriodo += t.coste;
+  });
+
+  const filas = Object.values(totalesPorEmpleado).map(t => `
+    <tr>
+      <td>${esc(t.nombre)}</td>
+      <td>${window.UI.formatoHoras(t.horas)}</td>
+      ${costeHabilitado ? `<td>${t.coste.toFixed(2)} €</td>` : ''}
+      <td>${t.aperturas}</td>
+      <td>${t.cierres}</td>
+      <td>${t.domingos}</td>
+    </tr>
+  `).join('');
 
   el.innerHTML = `
     <div class="card">
-      <h3>Estimacion mensual (patron semanal x4)</h3>
+      <h3>Totales del periodo generado (${semanasKeys.length} semana${semanasKeys.length === 1 ? '' : 's'})</h3>
+      <div class="grid ${costeHabilitado ? 'grid-2' : 'grid-1'}" style="margin-bottom:16px;">
+        <div class="stat"><div class="stat__value">${window.UI.formatoHoras(horasTotales)}</div><div class="stat__label">Horas totales del periodo</div></div>
+        ${costeHabilitado ? `<div class="stat"><div class="stat__value">${costeTotalPeriodo.toFixed(0)} €</div><div class="stat__label">Coste total estimado</div></div>` : ''}
+      </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Empleado</th><th>Horas / semana</th><th>Horas / mes (aprox.)</th></tr></thead>
-          <tbody>${filas || '<tr class="empty-row"><td colspan="3">Sin datos</td></tr>'}</tbody>
+          <thead>
+            <tr>
+              <th>Empleado</th><th>Horas totales</th>
+              ${costeHabilitado ? '<th>Coste estimado</th>' : ''}
+              <th>Aperturas</th><th>Cierres</th><th>Domingos</th>
+            </tr>
+          </thead>
+          <tbody>${filas || `<tr class="empty-row"><td colspan="${costeHabilitado ? 6 : 5}">Sin datos</td></tr>`}</tbody>
         </table>
       </div>
     </div>
   `;
 }
 
-function pintarVistaEmpleado(el, cuadrante, personal) {
+/* ---------- Vista "Por empleado" (detalle semana a semana) ---------- */
+
+function pintarVistaEmpleado(el, contenedor, semanasKeys, personal) {
   el.innerHTML = `
     <div class="card">
-      <div class="field" style="max-width:320px;">
-        <label for="sel-empleado">Empleado</label>
-        <select id="sel-empleado">
-          ${personal.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
-        </select>
+      <div class="form-grid">
+        <div class="field">
+          <label for="sel-empleado">Empleado</label>
+          <select id="sel-empleado">
+            ${personal.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label for="sel-semana-emp">Semana</label>
+          <select id="sel-semana-emp">
+            ${semanasKeys.map(k => {
+              const w = numeroSemanaISO(k);
+              return `<option value="${k}" ${k === semanaSeleccionada ? 'selected' : ''}>${w.anio}-${String(w.semana).padStart(2, '0')} (${formatoFechaCorta(k)})</option>`;
+            }).join('')}
+          </select>
+        </div>
       </div>
       <div id="detalle-empleado" style="margin-top:14px;"></div>
     </div>
   `;
 
-  const select = document.getElementById('sel-empleado');
+  const selEmp = document.getElementById('sel-empleado');
+  const selSemana = document.getElementById('sel-semana-emp');
+
   const pintarDetalle = () => {
-    const id = select.value;
+    const id = selEmp.value;
+    const claveSemana = selSemana.value;
+    const semana = contenedor.semanas[claveSemana];
     const emp = personal.find(p => p.id === id);
-    const resumen = cuadrante.resumenEmpleado[id] || {};
+    const resumen = (semana.resumenEmpleado || {})[id] || {};
     const filas = DIAS.map(d => {
-      const turnos = (cuadrante.dias[d] || []).filter(t => t.empleadoId === id);
+      const turnos = (semana.dias[d] || []).filter(t => t.empleadoId === id);
       const texto = turnos.length ? turnos.map(t => `${t.horaInicio}-${t.horaFin}${t.operacionNombre ? ' (' + esc(t.operacionNombre) + ')' : ''}`).join(', ') : '<span class="muted">Libre</span>';
       return `<tr><td>${DIAS_LABEL[d]}</td><td>${texto}</td></tr>`;
     }).join('');
 
     document.getElementById('detalle-empleado').innerHTML = `
       <div class="grid grid-4" style="margin-bottom:14px;">
-        <div class="stat"><div class="stat__value">${window.UI.formatoHoras(resumen.horas || 0)}</div><div class="stat__label">Horas asignadas</div></div>
+        <div class="stat"><div class="stat__value">${window.UI.formatoHoras(resumen.horas || 0)}</div><div class="stat__label">Horas esta semana</div></div>
         <div class="stat"><div class="stat__value">${emp ? emp.horasSemanales : 0} h</div><div class="stat__label">Contrato semanal</div></div>
         <div class="stat"><div class="stat__value">${resumen.aperturas || 0}</div><div class="stat__label">Aperturas</div></div>
         <div class="stat"><div class="stat__value">${resumen.cierres || 0}</div><div class="stat__label">Cierres</div></div>
@@ -627,49 +852,9 @@ function pintarVistaEmpleado(el, cuadrante, personal) {
     `;
   };
 
-  select.addEventListener('change', pintarDetalle);
+  selEmp.addEventListener('change', pintarDetalle);
+  selSemana.addEventListener('change', pintarDetalle);
   if (personal.length) pintarDetalle();
-}
-
-function pintarVistaDia(el, cuadrante) {
-  el.innerHTML = `
-    <div class="card">
-      <div class="tabs" id="tabs-dias">
-        ${DIAS.map((d, i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" data-dia="${d}">${DIAS_LABEL[d]}</button>`).join('')}
-      </div>
-      <div id="detalle-dia"></div>
-    </div>
-  `;
-
-  const pintar = (dia) => {
-    const turnos = (cuadrante.dias[dia] || []).slice().sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
-    document.getElementById('detalle-dia').innerHTML = `
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Empleado</th><th>Horario</th><th>Tipo</th><th>Seccion</th></tr></thead>
-          <tbody>
-            ${turnos.length ? turnos.map(t => `
-              <tr>
-                <td>${esc(t.nombre)}</td>
-                <td>${t.horaInicio} - ${t.horaFin}</td>
-                <td>${t.tipo === 'operacion' ? `<span class="badge badge--warn">Operacion${t.operacionNombre ? ': ' + esc(t.operacionNombre) : ''}</span>` : '<span class="badge badge--info">Cobertura</span>'}</td>
-                <td>${esc(t.seccion) || '-'}</td>
-              </tr>
-            `).join('') : '<tr class="empty-row"><td colspan="4">Sin turnos este dia.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    `;
-  };
-
-  document.getElementById('tabs-dias').addEventListener('click', (ev) => {
-    const btn = ev.target.closest('.tab-btn');
-    if (!btn) return;
-    document.querySelectorAll('#tabs-dias .tab-btn').forEach(b => b.classList.toggle('active', b === btn));
-    pintar(btn.dataset.dia);
-  });
-
-  pintar(DIAS[0]);
 }
 
 function esc(v) { return window.UI.escapeHtml(v); }

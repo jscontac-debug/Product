@@ -14,11 +14,13 @@ export async function render(container) {
   const personal = leer(KEYS.PERSONAL, []);
   const cobertura = leer(KEYS.COBERTURA, []);
   const operaciones = leer(KEYS.OPERACIONES, []);
-  const cuadrante = leer(KEYS.CUADRANTE);
+  const contenedor = leer(KEYS.CUADRANTE);
+  const semanasKeys = contenedor && contenedor.semanas ? Object.keys(contenedor.semanas).sort() : [];
+  const ultimaSemana = semanasKeys.length ? contenedor.semanas[semanasKeys[0]] : null;
 
   let resumenValidacion = null;
-  if (cuadrante) {
-    const problemas = validarCuadrante(tienda, personal, cobertura, operaciones, cuadrante);
+  if (ultimaSemana) {
+    const problemas = validarCuadrante(tienda, personal, cobertura, operaciones, ultimaSemana);
     resumenValidacion = {
       errores: problemas.filter(p => p.gravedad === 'bad').length,
       avisos: problemas.filter(p => p.gravedad === 'warn').length
@@ -39,8 +41,8 @@ export async function render(container) {
         <div class="stat"><div class="stat__value">${cobertura.length}</div><div class="stat__label">Franjas de cobertura</div></div>
         <div class="stat"><div class="stat__value">${operaciones.length}</div><div class="stat__label">Operaciones planificadas</div></div>
         <div class="stat ${estadoStat(resumenValidacion)}">
-          <div class="stat__value">${cuadrante ? (resumenValidacion.errores === 0 ? 'OK' : resumenValidacion.errores) : '—'}</div>
-          <div class="stat__label">${cuadrante ? (resumenValidacion.errores === 0 ? 'Cuadrante valido' : 'Incumplimientos') : 'Sin cuadrante'}</div>
+          <div class="stat__value">${ultimaSemana ? (resumenValidacion.errores === 0 ? 'OK' : resumenValidacion.errores) : '—'}</div>
+          <div class="stat__label">${ultimaSemana ? (resumenValidacion.errores === 0 ? 'Cuadrante valido' : 'Incumplimientos') : 'Sin cuadrante'}</div>
         </div>
       </div>
 
@@ -56,13 +58,13 @@ export async function render(container) {
 
         <div class="card">
           <h3>Ultimo cuadrante</h3>
-          ${cuadrante ? `
-            <p>Generado el ${new Date(cuadrante.generadoEl).toLocaleString('es-ES')}</p>
-            <p class="muted">Semana del ${cuadrante.semanaInicio || '-'}</p>
-            ${resumenValidacion ? `<p>${resumenValidacion.errores} incumplimientos · ${resumenValidacion.avisos} avisos</p>` : ''}
+          ${contenedor ? `
+            <p>Generado el ${new Date(contenedor.generadoEl).toLocaleString('es-ES')}</p>
+            <p class="muted">${semanasKeys.length} semana(s) · primera semana: ${semanasKeys[0] || '-'}</p>
+            ${resumenValidacion ? `<p>${resumenValidacion.errores} incumplimientos · ${resumenValidacion.avisos} avisos (1ª semana)</p>` : ''}
           ` : `<p class="muted">Aun no se ha generado ningun cuadrante.</p>`}
           <button class="btn btn--sm" data-ir="generar">Generar cuadrante</button>
-          ${cuadrante ? '<button class="btn btn--secondary btn--sm" data-ir="resultado">Ver resultado</button>' : ''}
+          ${contenedor ? '<button class="btn btn--secondary btn--sm" data-ir="resultado">Ver resultado</button>' : ''}
         </div>
       </div>
 

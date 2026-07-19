@@ -12,16 +12,18 @@
  * -----------------------------------------------------------------------
  */
 
-import { leer, KEYS, DIAS, DIAS_LABEL } from './storage.js';
+import { leer, KEYS, DIAS, DIAS_LABEL, numeroSemanaISO, formatoFechaCorta } from './storage.js';
+
+let semanaSeleccionada = null;
 
 export async function render(container) {
-  const cuadrante = leer(KEYS.CUADRANTE);
+  const contenedor = leer(KEYS.CUADRANTE);
   const tienda = leer(KEYS.TIENDA);
   const personal = leer(KEYS.PERSONAL, []);
   const cobertura = leer(KEYS.COBERTURA, []);
   const operaciones = leer(KEYS.OPERACIONES, []);
 
-  if (!cuadrante) {
+  if (!contenedor || !contenedor.semanas || !Object.keys(contenedor.semanas).length) {
     container.innerHTML = `
       <div class="screen">
         <div class="card">
@@ -35,16 +37,34 @@ export async function render(container) {
     return;
   }
 
-  const problemas = validarCuadrante(tienda, personal, cobertura, operaciones, cuadrante);
+  const semanasKeys = Object.keys(contenedor.semanas).sort();
+  if (!semanaSeleccionada || !contenedor.semanas[semanaSeleccionada]) semanaSeleccionada = semanasKeys[0];
+
+  pintar(container, contenedor, semanasKeys, tienda, personal, cobertura, operaciones);
+}
+
+function pintar(container, contenedor, semanasKeys, tienda, personal, cobertura, operaciones) {
+  const semana = contenedor.semanas[semanaSeleccionada];
+  const problemas = validarCuadrante(tienda, personal, cobertura, operaciones, semana);
   const errores = problemas.filter(p => p.gravedad === 'bad').length;
   const avisos = problemas.filter(p => p.gravedad === 'warn').length;
+  const w = numeroSemanaISO(semanaSeleccionada);
 
   container.innerHTML = `
     <div class="screen">
       <div class="screen-header">
         <div>
           <h1>Validacion</h1>
-          <p>Revision automatica del cuadrante generado el ${new Date(cuadrante.generadoEl).toLocaleString('es-ES')}.</p>
+          <p>Revision automatica de la semana ${w.anio}-${String(w.semana).padStart(2, '0')} (${formatoFechaCorta(semanaSeleccionada)}), generada el ${new Date(contenedor.generadoEl).toLocaleString('es-ES')}.</p>
+        </div>
+        <div class="field" style="min-width:200px;">
+          <label for="sel-semana-val">Semana a validar</label>
+          <select id="sel-semana-val">
+            ${semanasKeys.map(k => {
+              const ww = numeroSemanaISO(k);
+              return `<option value="${k}" ${k === semanaSeleccionada ? 'selected' : ''}>${ww.anio}-${String(ww.semana).padStart(2, '0')} (${formatoFechaCorta(k)})</option>`;
+            }).join('')}
+          </select>
         </div>
       </div>
 
@@ -75,6 +95,11 @@ export async function render(container) {
       </div>
     </div>
   `;
+
+  document.getElementById('sel-semana-val').addEventListener('change', (ev) => {
+    semanaSeleccionada = ev.target.value;
+    pintar(container, contenedor, semanasKeys, tienda, personal, cobertura, operaciones);
+  });
 }
 
 /**

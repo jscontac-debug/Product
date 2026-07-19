@@ -120,9 +120,11 @@ export function estructuraTiendaVacia() {
     tiempoDespues: 15,
     rotacion: 'semanal',
     maxHorasDia: 9,
+    duracionTurnoMax: 6,
     maxTurnos: 2,
     maxDiasConsecutivos: 6,
-    descansoMinimo: 12
+    descansoMinimo: 12,
+    costeHabilitado: true
   };
 }
 
@@ -147,3 +149,45 @@ export const DIAS_LABEL = {
   lunes: 'Lunes', martes: 'Martes', miercoles: 'Miercoles', jueves: 'Jueves',
   viernes: 'Viernes', sabado: 'Sabado', domingo: 'Domingo'
 };
+
+/* ---------------------------------------------------------------------
+ * Utilidades de fecha compartidas. Se centralizan aqui porque tanto el
+ * motor (generacion multi-semana) como validacion/informes/dashboard
+ * (navegacion entre semanas generadas) las necesitan por igual.
+ * ------------------------------------------------------------------- */
+
+/** Suma (o resta) dias a una fecha ISO (yyyy-mm-dd) y devuelve otra fecha ISO. */
+export function sumarDiasFecha(fechaIso, dias) {
+  if (!fechaIso) return '';
+  const d = new Date(fechaIso + 'T00:00:00');
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Ajusta cualquier fecha ISO al lunes de esa misma semana. */
+export function lunesDeSemana(fechaIso) {
+  if (!fechaIso) return fechaIso;
+  const d = new Date(fechaIso + 'T00:00:00');
+  const diaSemana = d.getDay(); // 0 domingo .. 6 sabado
+  const offset = diaSemana === 0 ? -6 : (1 - diaSemana);
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Calcula el numero de semana ISO-8601 y el anio correspondientes a una fecha. */
+export function numeroSemanaISO(fechaIso) {
+  const d = new Date(fechaIso + 'T00:00:00');
+  const objetivo = new Date(d.valueOf());
+  const diaSemanaISO = (d.getDay() + 6) % 7; // lunes = 0 .. domingo = 6
+  objetivo.setDate(objetivo.getDate() - diaSemanaISO + 3); // jueves de esa semana
+  const primerJueves = new Date(objetivo.getFullYear(), 0, 4);
+  const diffSemanas = Math.round((objetivo - primerJueves) / (7 * 24 * 60 * 60 * 1000));
+  return { anio: objetivo.getFullYear(), semana: diffSemanas + 1 };
+}
+
+/** Formatea una fecha ISO como dd/mm/yyyy para mostrar en pantalla. */
+export function formatoFechaCorta(fechaIso) {
+  if (!fechaIso) return '';
+  const [a, m, d] = fechaIso.split('-');
+  return `${d}/${m}/${a}`;
+}

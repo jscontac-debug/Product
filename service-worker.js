@@ -7,7 +7,7 @@
  * -----------------------------------------------------------------------
  */
 
-const CACHE_NAME = 'product-cache-v1';
+const CACHE_NAME = 'product-cache-v2';
 
 const ARCHIVOS_APP = [
   './',

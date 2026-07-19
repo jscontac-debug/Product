@@ -66,6 +66,10 @@ function pintar(container) {
                 <option value="partido">Partido</option>
               </select>
             </div>
+            <div class="field">
+              <label for="pe-coste">Coste por hora (€)</label>
+              <input id="pe-coste" name="costeHora" type="number" min="0" step="0.1" placeholder="Ej. 11.5">
+            </div>
           </div>
 
           <div class="field" style="margin-top:12px;">
@@ -102,7 +106,7 @@ function pintar(container) {
             <thead>
               <tr>
                 <th>Nombre</th><th>Contrato</th><th>Horas/sem</th><th>Categoria</th>
-                <th>Seccion</th><th>Turno fijo</th><th>Disponibilidad</th><th></th>
+                <th>Seccion</th><th>Turno fijo</th><th>Coste/h</th><th>Disponibilidad</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -142,6 +146,7 @@ function filaEmpleado(e) {
       <td>${esc(e.categoria)}</td>
       <td>${esc(e.seccion)}</td>
       <td>${e.turnoFijo ? esc(e.turnoFijo) : '<span class="muted">-</span>'}</td>
+      <td>${e.costeHora ? e.costeHora.toFixed(2) + ' €' : '<span class="muted">-</span>'}</td>
       <td><span class="badge badge--info">${dispTxt || '-'}</span></td>
       <td style="white-space:nowrap;">
         <button class="btn btn--sm btn--secondary" data-editar="${e.id}">Editar</button>
@@ -152,7 +157,7 @@ function filaEmpleado(e) {
 }
 
 function filaVacia() {
-  return `<tr class="empty-row"><td colspan="8">No hay empleados dados de alta todavia.</td></tr>`;
+  return `<tr class="empty-row"><td colspan="9">No hay empleados dados de alta todavia.</td></tr>`;
 }
 
 function guardarEmpleado(form, container) {
@@ -172,6 +177,7 @@ function guardarEmpleado(form, container) {
     seccion: (datos.get('seccion') || '').trim(),
     disponibilidad,
     turnoFijo: datos.get('turnoFijo') || '',
+    costeHora: Number(datos.get('costeHora')) || 0,
     vacaciones,
     preferencias: (datos.get('preferencias') || '').trim()
   };
@@ -206,6 +212,7 @@ function iniciarEdicion(id, container) {
   form.querySelector('[name="categoria"]').value = emp.categoria;
   form.querySelector('[name="seccion"]').value = emp.seccion;
   form.querySelector('[name="turnoFijo"]').value = emp.turnoFijo || '';
+  form.querySelector('[name="costeHora"]').value = emp.costeHora || '';
   form.querySelector('[name="vacaciones"]').value = (emp.vacaciones || []).join(', ');
   form.querySelector('[name="preferencias"]').value = emp.preferencias || '';
   DIAS.forEach(d => {
