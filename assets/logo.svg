@@ -1,0 +1,10 @@
+<svg width="160" height="40" viewBox="0 0 160 40" xmlns="http://www.w3.org/2000/svg">
+  <rect x="1" y="1" width="38" height="38" rx="9" fill="#172a3a"/>
+  <rect x="9" y="15" width="7" height="7" rx="1.5" fill="#2da6b2"/>
+  <rect x="18" y="15" width="7" height="7" rx="1.5" fill="#f0b43c"/>
+  <rect x="27" y="15" width="7" height="7" rx="1.5" fill="#2da6b2"/>
+  <rect x="9" y="24" width="7" height="7" rx="1.5" fill="#f0b43c"/>
+  <rect x="18" y="24" width="7" height="7" rx="1.5" fill="#2da6b2"/>
+  <rect x="9" y="8" width="25" height="4" rx="1.5" fill="#ffffff" fill-opacity="0.9"/>
+  <text x="48" y="27" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#172a3a">Product</text>
+</svg>
