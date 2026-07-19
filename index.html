@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Product · Gestion de cuadrantes</title>
+<meta name="description" content="Product: aplicacion para generar y validar cuadrantes de tienda automaticamente.">
+<meta name="theme-color" content="#172a3a">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-header__brand">
+    <img src="assets/logo.svg" alt="Product" class="app-header__logo">
+  </div>
+  <button id="btn-menu" class="app-header__menu-btn" aria-label="Abrir menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+</header>
+
+<nav id="main-nav" class="main-nav" aria-label="Navegacion principal">
+  <button class="nav-item" data-route="dashboard">Dashboard</button>
+  <button class="nav-item" data-route="tienda">Tienda</button>
+  <button class="nav-item" data-route="personal">Personal</button>
+  <button class="nav-item" data-route="cobertura">Cobertura</button>
+  <button class="nav-item" data-route="operaciones">Operaciones</button>
+  <button class="nav-item" data-route="reglas">Reglas</button>
+  <button class="nav-item" data-route="generar">Generar</button>
+  <button class="nav-item" data-route="resultado">Resultado</button>
+  <button class="nav-item" data-route="validacion">Validacion</button>
+  <button class="nav-item" data-route="informes">Informes</button>
+</nav>
+
+<main id="app-container" class="app-container" role="main">
+  <!-- Cada modulo pinta aqui su pantalla -->
+  <p class="loading">Cargando aplicacion...</p>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<footer class="app-footer">
+  <span>Product &middot; Funciona 100% en tu navegador &middot; Datos guardados solo en este dispositivo</span>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
