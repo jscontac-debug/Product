@@ -71,6 +71,10 @@ export async function render(container) {
             <input id="ti-maxhoras" name="maxHorasDia" type="number" min="1" max="24" step="0.5" value="${tienda.maxHorasDia}">
           </div>
           <div class="field">
+            <label for="ti-duracionturnomin">Duracion minima de un turno (h)</label>
+            <input id="ti-duracionturnomin" name="duracionTurnoMin" type="number" min="0.5" max="14" step="0.5" value="${tienda.duracionTurnoMin || 4}">
+          </div>
+          <div class="field">
             <label for="ti-duracionturno">Duracion maxima de un turno (h)</label>
             <input id="ti-duracionturno" name="duracionTurnoMax" type="number" min="1" max="14" step="0.5" value="${tienda.duracionTurnoMax || 6}">
           </div>
@@ -122,6 +126,13 @@ function guardarFormulario(form) {
     return;
   }
 
+  const duracionTurnoMin = Number(datos.get('duracionTurnoMin')) || 4;
+  const duracionTurnoMax = Number(datos.get('duracionTurnoMax')) || 6;
+  if (duracionTurnoMin > duracionTurnoMax) {
+    window.UI.toast('La duracion minima de turno no puede ser mayor que la maxima.');
+    return;
+  }
+
   const tienda = {
     nombre: datos.get('nombre').trim(),
     convenio: datos.get('convenio').trim(),
@@ -130,7 +141,8 @@ function guardarFormulario(form) {
     tiempoDespues: Number(datos.get('tiempoDespues')) || 0,
     rotacion: datos.get('rotacion'),
     maxHorasDia: Number(datos.get('maxHorasDia')) || 8,
-    duracionTurnoMax: Number(datos.get('duracionTurnoMax')) || 6,
+    duracionTurnoMin,
+    duracionTurnoMax,
     maxTurnos: Number(datos.get('maxTurnos')) || 1,
     maxDiasConsecutivos: Number(datos.get('maxDiasConsecutivos')) || 6,
     descansoMinimo: Number(datos.get('descansoMinimo')) || 12,
